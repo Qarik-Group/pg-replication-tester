@@ -52,12 +52,11 @@ Options
 -------
 
 ```
--M, --master        Replication master host.  May only be specified once
--S, --slave         Replication slave host(s).  May be specified more than once
--P, --pgpool-port   TCP port that PGPoolII listens on (default: 5432)
--p, --postgres-port TCP port that Postgres listens on (default: 6432)
--u, --user          User to connect as
--w, --password      Password to connect with
--D, --debug         Enable debugging output (to standard error)
--l, --lag           Maximum acceptable lag behind the master xlog position (bytes) (default: 8192)
+-M, --master   Replication master host.  May only be specified once
+-S, --slave    Replication slave host(s).  May be specified more than once
+-p, --port     TCP port that Postgres listens on (default: 6432)
+-u, --user     User to connect as
+-w, --password Password to connect with
+-D, --debug    Enable debugging output (to standard error)
+-l, --lag      Maximum acceptable lag behind the master xlog position (bytes) (default: 8192)
 ```

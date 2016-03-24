@@ -126,19 +126,17 @@ func (s *Slave) Check(m Master) {
 
 func main() {
 	options := struct {
-		Master       string   `goptions:"-M, --master, description='Replication master host.  May only be specified once'"`
-		Slaves       []string `goptions:"-S, --slave, description='Replication slave host(s).  May be specified more than once'"`
-		FrontendPort string   `goptions:"-P, --pgpool-port, description='TCP port that PGPoolII listens on'"`
-		BackendPort  string   `goptions:"-p, --postgres-port, description='TCP port that Postgres listens on'"`
-		User         string   `goptions:"-u, --user, description='User to connect as'"`
-		Password     string   `goptions:"-w, --password, description='Password to connect with'"`
-		Database     string   `goptions;"-d, --database, description='Database to use for testing'"`
-		Debug        bool     `goptions:"-D, --debug, description='Enable debugging output (to standard error)'"`
-		AcceptLag    int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
+		Master    string   `goptions:"-M, --master, description='Replication master host.  May only be specified once'"`
+		Slaves    []string `goptions:"-S, --slave, description='Replication slave host(s).  May be specified more than once'"`
+		Port      string   `goptions:"-p, --port, description='TCP port that Postgres listens on'"`
+		User      string   `goptions:"-u, --user, description='User to connect as'"`
+		Password  string   `goptions:"-w, --password, description='Password to connect with'"`
+		Database  string   `goptions;"-d, --database, description='Database to use for testing'"`
+		Debug     bool     `goptions:"-D, --debug, description='Enable debugging output (to standard error)'"`
+		AcceptLag int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
 	}{
-		FrontendPort: "5432",
-		BackendPort:  "6432",
-		AcceptLag:    8192,
+		Port:      "6432",
+		AcceptLag: 8192,
 	}
 	goptions.ParseAndFail(&options)
 	if options.Database == "" {
@@ -146,13 +144,13 @@ func main() {
 	}
 	debugging = options.Debug
 
-	master := QueryMaster(options.Master, options.BackendPort,
+	master := QueryMaster(options.Master, options.Port,
 		options.User, options.Password, options.Database)
 	fmt.Printf("%s: %s\n", options.Master, master.xlog_location)
 
 	failed := false
 	for _, host := range options.Slaves {
-		slave := QuerySlave(host, options.BackendPort,
+		slave := QuerySlave(host, options.Port,
 			options.User, options.Password, options.Database)
 		slave.Check(master)
 
