@@ -47,3 +47,17 @@ It exists non-zero on failure, with the following meanings:
           terribly broken...)
 - **6** - One or more of the read slaves was lagging too far
           behind the master (based on `-l`)
+
+Options
+-------
+
+```
+-M, --master        Replication master host.  May only be specified once
+-S, --slave         Replication slave host(s).  May be specified more than once
+-P, --pgpool-port   TCP port that PGPoolII listens on (default: 5432)
+-p, --postgres-port TCP port that Postgres listens on (default: 6432)
+-u, --user          User to connect as
+-w, --password      Password to connect with
+-D, --debug         Enable debugging output (to standard error)
+-l, --lag           Maximum acceptable lag behind the master xlog position (bytes) (default: 8192)
+```
