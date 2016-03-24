@@ -11,6 +11,15 @@ import (
 	"github.com/voxelbrain/goptions"
 )
 
+const (
+	/* exit codes... */
+	BecauseConnectionFailed = 2
+	BecauseMasterQueryFailed = 3
+	BecauseSlaveQueryFailed = 4
+	BecauseXlogConversionFailed = 5
+	BecauseReplicationLag = 6
+)
+
 var debugging = false
 
 func debug(f string, args ...interface{}) {
@@ -43,6 +52,7 @@ func connect(host, port, user, password, dbname string) *sql.DB {
 	if err != nil {
 		fmt.Printf("Error connecting to %s:%s as user %s, database %s: %s\n",
 			host, port, user, dbname, err)
+		os.Exit(BecauseConnectionFailed)
 		return nil
 	}
 
@@ -51,16 +61,21 @@ func connect(host, port, user, password, dbname string) *sql.DB {
 
 func xlog(s string) int64 {
 	l := strings.SplitN(s, "/", 2)
+	if len(l) != 2 {
+		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
+		os.Exit(BecauseXlogConversionFailed)
+	}
+
 	a, err := strconv.ParseInt(l[0], 16, 64)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
-		return 0
+		os.Exit(BecauseXlogConversionFailed)
 	}
 
 	b, err := strconv.ParseInt(l[1], 16, 64)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
-		return 0
+		os.Exit(BecauseXlogConversionFailed)
 	}
 
 	return a<<64 + b
@@ -76,7 +91,7 @@ func QueryMaster(host, port, user, pass, dbname string) (m Master) {
 		var err error
 		if m.xlog_location, err = query1(db, "SELECT pg_current_xlog_location()"); err != nil {
 			fmt.Printf("Failed to query current xlog location: %s\n", err)
-			os.Exit(1)
+			os.Exit(BecauseMasterQueryFailed)
 		}
 	}
 	return
@@ -156,6 +171,6 @@ func main() {
 	}
 	if failed {
 		fmt.Print("FAILED\n")
-		os.Exit(1)
+		os.Exit(BecauseReplicationLag)
 	}
 }

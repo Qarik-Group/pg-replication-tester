@@ -27,3 +27,23 @@ $ pgrt -M 10.244.232.2 -S 10.244.232.3 -S 10.244.232.4 -l 800
 10.244.232.4: 0/B17F558 (-1216)        to 0/B17F6E8 (-400)          !! too far behind write master
 FAILED
 ```
+
+Exit Codes
+----------
+
+`pgrt` exits 0 if it can contact all nodes, each node is playing
+the part specified (i.e. write master is a write master, and read
+slaves are actually read slaves), and the replication lag (first
+parenthetical figure) is below the acceptable lag (per `-l`)
+
+It exists non-zero on failure, with the following meanings:
+
+- **1** - Option processing or other non-runtime error.
+          Check your flags.
+- **2** - Connectivity to at least one node failed.
+- **3** - A query to the write master failed
+- **4** - A query to one of the read slaves failed
+- **5** - xlog conversion failed (if this happens, something is
+          terribly broken...)
+- **6** - One or more of the read slaves was lagging too far
+          behind the master (based on `-l`)
