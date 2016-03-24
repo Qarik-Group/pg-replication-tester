@@ -159,7 +159,7 @@ func main() {
 		emsg := ""
 		if slave.behind > options.AcceptLag {
 			failed = true
-			emsg = "    !! too far behind write master\n"
+			emsg = "    !! too far behind write master"
 		}
 
 		fmt.Printf("%s: %s %-12s   to %s %-12s%s\n", host,
