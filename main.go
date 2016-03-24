@@ -86,13 +86,12 @@ type Master struct {
 }
 
 func QueryMaster(host, port, user, pass, dbname string) (m Master) {
-	if db := connect(host, port, user, pass, dbname); db != nil {
-		defer db.Close()
-		var err error
-		if m.xlog_location, err = query1(db, "SELECT pg_current_xlog_location()"); err != nil {
-			fmt.Printf("Failed to query current xlog location: %s\n", err)
-			os.Exit(BecauseMasterQueryFailed)
-		}
+	db := connect(host, port, user, pass, dbname)
+	defer db.Close()
+	var err error
+	if m.xlog_location, err = query1(db, "SELECT pg_current_xlog_location()"); err != nil {
+		fmt.Printf("Failed to query current xlog location: %s\n", err)
+		os.Exit(BecauseMasterQueryFailed)
 	}
 	return
 }
@@ -105,18 +104,17 @@ type Slave struct {
 }
 
 func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
-	if db := connect(host, port, user, pass, dbname); db != nil {
-		defer db.Close()
-		var err error
-		if s.recv_location, err = query1(db, "SELECT pg_last_xlog_receive_location()"); err != nil {
-			fmt.Printf("Failed to query last received xlog location: %s\n", err)
-			os.Exit(BecauseSlaveQueryFailed)
-		}
+	db := connect(host, port, user, pass, dbname)
+	defer db.Close()
+	var err error
+	if s.recv_location, err = query1(db, "SELECT pg_last_xlog_receive_location()"); err != nil {
+		fmt.Printf("Failed to query last received xlog location: %s\n", err)
+		os.Exit(BecauseSlaveQueryFailed)
+	}
 
-		if s.rply_location, err = query1(db, "SELECT pg_last_xlog_replay_location()"); err != nil {
-			fmt.Printf("Failed to query last replayed xlog location: %s\n", err)
-			os.Exit(BecauseSlaveQueryFailed)
-		}
+	if s.rply_location, err = query1(db, "SELECT pg_last_xlog_replay_location()"); err != nil {
+		fmt.Printf("Failed to query last replayed xlog location: %s\n", err)
+		os.Exit(BecauseSlaveQueryFailed)
 	}
 	return
 }
