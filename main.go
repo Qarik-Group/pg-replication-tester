@@ -3,9 +3,9 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"math"
 	"os"
 	"strconv"
+	"strings"
 
 	_ "github.com/lib/pq"
 	"github.com/voxelbrain/goptions"
@@ -34,6 +34,83 @@ func query1(db *sql.DB, q string) (string, error) {
 	return v, nil
 }
 
+func connect(host, port, user, password, dbname string) *sql.DB {
+	conn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
+	debug("connecting to `%s`", conn)
+
+	db, err := sql.Open("postgres", conn)
+	if err != nil {
+		fmt.Printf("Error connecting to %s:%s as user %s, database %s: %s\n",
+			host, port, user, dbname, err)
+		return nil
+	}
+
+	return db
+}
+
+func xlog(s string) int64 {
+	l := strings.SplitN(s, "/", 2)
+	a, err := strconv.ParseInt(l[0], 16, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
+		return 0
+	}
+
+	b, err := strconv.ParseInt(l[1], 16, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
+		return 0
+	}
+
+	return a<<64 + b
+}
+
+type Master struct {
+	xlog_location string
+}
+
+func QueryMaster(host, port, user, pass, dbname string) (m Master) {
+	if db := connect(host, port, user, pass, dbname); db != nil {
+		defer db.Close()
+		var err error
+		if m.xlog_location, err = query1(db, "SELECT pg_current_xlog_location()"); err != nil {
+			fmt.Printf("Failed to query current xlog location: %s\n", err)
+			os.Exit(1)
+		}
+	}
+	return
+}
+
+type Slave struct {
+	recv_location string
+	rply_location string
+	behind        int64
+	delay         int64
+}
+
+func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
+	if db := connect(host, port, user, pass, dbname); db != nil {
+		defer db.Close()
+		var err error
+		if s.recv_location, err = query1(db, "SELECT pg_last_xlog_receive_location()"); err != nil {
+			fmt.Printf("Failed to query last received xlog location: %s\n", err)
+			os.Exit(1)
+		}
+
+		if s.rply_location, err = query1(db, "SELECT pg_last_xlog_replay_location()"); err != nil {
+			fmt.Printf("Failed to query last replayed xlog location: %s\n", err)
+			os.Exit(1)
+		}
+	}
+	return
+}
+
+func (s *Slave) Check(m Master) {
+	s.behind = xlog(m.xlog_location) - xlog(s.recv_location)
+	s.delay = xlog(s.recv_location) - xlog(s.rply_location)
+}
+
 func main() {
 	options := struct {
 		Master       string   `goptions:"-M, --master, description='Replication master host.  May only be specified once'"`
@@ -44,11 +121,11 @@ func main() {
 		Password     string   `goptions:"-w, --password, description='Password to connect with'"`
 		Database     string   `goptions;"-d, --database, description='Database to use for testing'"`
 		Debug        bool     `goptions:"-D, --debug, description='Enable debugging output (to standard error)'"`
-		AcceptLag    string   `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
+		AcceptLag    int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
 	}{
 		FrontendPort: "5432",
 		BackendPort:  "6432",
-		AcceptLag:    "8192",
+		AcceptLag:    8192,
 	}
 	goptions.ParseAndFail(&options)
 	if options.Database == "" {
@@ -56,77 +133,26 @@ func main() {
 	}
 	debugging = options.Debug
 
-	var master_xlog string
-	var failed bool
-
-	func() {
-		host := options.Master
-		conn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			host, options.BackendPort, options.User, options.Password, options.Database)
-		debug("checking on WRITE MASTER %s:%s", host, options.BackendPort)
-		debug("  (connecting to: %s)", conn)
-
-		db, err := sql.Open("postgres", conn)
-		if err != nil {
-			failed = true
-			fmt.Printf("Error connecting to write master %s:%s as user %s, database %s: %s\n",
-				host, options.BackendPort, options.User, options.Database, err)
-			return
-		}
-		defer db.Close()
-
-		debug("connected.  checking replication status...")
-		master_xlog, err = query1(db, "SELECT pg_current_xlog_location()")
-		if err != nil {
-			fmt.Printf("Error querying pg_current_xlog_location(): %s\n", err)
-			return
-		}
-		fmt.Printf("%s: %s\n", host, master_xlog)
-	}()
+	failed := false
+	master := QueryMaster(options.Master, options.BackendPort,
+		options.User, options.Password, options.Database)
+	fmt.Printf("%s: %s\n", options.Master, master.xlog_location)
 
 	for _, host := range options.Slaves {
-		func() {
-			conn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-				host, options.BackendPort, options.User, options.Password, options.Database)
-			debug("checking on READ SLAVE %s:%s", host, options.BackendPort)
-			debug("  (connecting to: %s)", conn)
+		slave := QuerySlave(host, options.BackendPort,
+			options.User, options.Password, options.Database)
+		slave.Check(master)
 
-			db, err := sql.Open("postgres", conn)
-			if err != nil {
-				failed = true
-				fmt.Printf("Error connecting to read slave %s:%s as user %s, database %s: %s\n",
-					host, options.BackendPort, options.User, options.Database, err)
-			}
-			defer db.Close()
+		emsg := ""
+		if slave.behind > options.AcceptLag {
+			failed = true
+			emsg = "    !! too far behind write master\n"
+		}
 
-			debug("connected.  checking replication status...")
-			recv, err := query1(db, "SELECT pg_last_xlog_receive_location()")
-			if err != nil {
-				failed = true
-				fmt.Printf("Error querying pg_last_xlog_receive_location(): %s\n", err)
-				return
-			}
-
-			replay, _ := query1(db, "SELECT pg_last_xlog_replay_location()")
-			behind, _ := query1(db, "SELECT pg_xlog_location_diff('"+master_xlog+"', '"+recv+"')")
-			lag, _ := query1(db, "SELECT pg_xlog_location_diff('"+recv+"', '"+replay+"')")
-
-			fmt.Printf("%s: %s %-12s   to %s %-12s",
-				host,
-				recv, fmt.Sprintf("(%s)", behind),
-				replay, fmt.Sprintf("(%s)", lag))
-
-			n, _ := strconv.ParseFloat(behind, 64)
-			e, _ := strconv.ParseFloat(options.AcceptLag, 64)
-
-			if math.Abs(n) > math.Abs(e) {
-				failed = true
-				fmt.Printf("    !! too far behind write master\n")
-				return
-			}
-
-			fmt.Printf("\n")
-		}()
+		fmt.Printf("%s: %s %-12s   to %s %-12s%s\n", host,
+			slave.recv_location, fmt.Sprintf("(%d)", -1*slave.behind),
+			slave.rply_location, fmt.Sprintf("(%d)", -1*slave.delay),
+			emsg)
 	}
 
 	if failed {
