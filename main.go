@@ -13,11 +13,11 @@ import (
 
 const (
 	/* exit codes... */
-	BecauseConnectionFailed = 2
-	BecauseMasterQueryFailed = 3
-	BecauseSlaveQueryFailed = 4
+	BecauseConnectionFailed     = 2
+	BecauseMasterQueryFailed    = 3
+	BecauseSlaveQueryFailed     = 4
 	BecauseXlogConversionFailed = 5
-	BecauseReplicationLag = 6
+	BecauseReplicationLag       = 6
 )
 
 var debugging = false
