@@ -95,20 +95,20 @@ func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
 		var err error
 		if s.recv_location, err = query1(db, "SELECT pg_last_xlog_receive_location()"); err != nil {
 			fmt.Printf("Failed to query last received xlog location: %s\n", err)
-			os.Exit(1)
+			os.Exit(BecauseSlaveQueryFailed)
 		}
 
 		if s.rply_location, err = query1(db, "SELECT pg_last_xlog_replay_location()"); err != nil {
 			fmt.Printf("Failed to query last replayed xlog location: %s\n", err)
-			os.Exit(1)
+			os.Exit(BecauseSlaveQueryFailed)
 		}
 	}
 	return
 }
 
 func (s *Slave) Check(m Master) {
-	s.behind = xlog(m.xlog_location) - xlog(s.recv_location)
-	s.delay = xlog(s.recv_location) - xlog(s.rply_location)
+	s.behind = xlog(s.recv_location) - xlog(m.xlog_location)
+	s.delay = xlog(s.rply_location) - xlog(s.recv_location)
 }
 
 func main() {
@@ -133,11 +133,11 @@ func main() {
 	}
 	debugging = options.Debug
 
-	failed := false
 	master := QueryMaster(options.Master, options.BackendPort,
 		options.User, options.Password, options.Database)
 	fmt.Printf("%s: %s\n", options.Master, master.xlog_location)
 
+	failed := false
 	for _, host := range options.Slaves {
 		slave := QuerySlave(host, options.BackendPort,
 			options.User, options.Password, options.Database)
@@ -154,7 +154,6 @@ func main() {
 			slave.rply_location, fmt.Sprintf("(%d)", -1*slave.delay),
 			emsg)
 	}
-
 	if failed {
 		fmt.Print("FAILED\n")
 		os.Exit(1)
