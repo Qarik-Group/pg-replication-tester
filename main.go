@@ -131,7 +131,7 @@ func main() {
 		Port      string   `goptions:"-p, --port, description='TCP port that Postgres listens on'"`
 		User      string   `goptions:"-u, --user, description='User to connect as'"`
 		Password  string   `goptions:"-w, --password, description='Password to connect with'"`
-		Database  string   `goptions;"-d, --database, description='Database to use for testing'"`
+		Database  string   `goptions:"-d, --database, description='Database to use for testing'"`
 		Debug     bool     `goptions:"-D, --debug, description='Enable debugging output (to standard error)'"`
 		AcceptLag int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
 	}{
