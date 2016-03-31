@@ -82,10 +82,12 @@ func xlog(s string) int64 {
 }
 
 type Master struct {
+	name          string
 	xlog_location string
 }
 
 func QueryMaster(host, port, user, pass, dbname string) (m Master) {
+	m.name = host
 	db := connect(host, port, user, pass, dbname)
 	defer db.Close()
 	var err error
@@ -97,6 +99,7 @@ func QueryMaster(host, port, user, pass, dbname string) (m Master) {
 }
 
 type Slave struct {
+	name          string
 	recv_location string
 	rply_location string
 	behind        int64
@@ -104,6 +107,7 @@ type Slave struct {
 }
 
 func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
+	s.name = host;
 	db := connect(host, port, user, pass, dbname)
 	defer db.Close()
 	var err error
@@ -144,14 +148,18 @@ func main() {
 	}
 	debugging = options.Debug
 
+	var slaves = make([]Slave, len(options.Slaves))
+	for i, host := range options.Slaves {
+		slaves[i] = QuerySlave(host, options.Port,
+			options.User, options.Password, options.Database)
+	}
+
 	master := QueryMaster(options.Master, options.Port,
 		options.User, options.Password, options.Database)
-	fmt.Printf("%s: %s\n", options.Master, master.xlog_location)
 
+	fmt.Printf("%s: %s\n", master.name, master.xlog_location)
 	failed := false
-	for _, host := range options.Slaves {
-		slave := QuerySlave(host, options.Port,
-			options.User, options.Password, options.Database)
+	for _, slave := range slaves {
 		slave.Check(master)
 
 		emsg := ""
@@ -160,7 +168,7 @@ func main() {
 			emsg = "    !! too far behind write master"
 		}
 
-		fmt.Printf("%s: %s %-12s   to %s %-12s%s\n", host,
+		fmt.Printf("%s: %s %-12s   to %s %-12s%s\n", slave.name,
 			slave.recv_location, fmt.Sprintf("(%d)", -1*slave.behind),
 			slave.rply_location, fmt.Sprintf("(%d)", -1*slave.delay),
 			emsg)
