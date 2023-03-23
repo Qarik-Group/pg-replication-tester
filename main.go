@@ -94,7 +94,9 @@ func QueryMaster(host, port, user, pass, dbname string) (m Master) {
 	db := connect(host, port, user, pass, dbname)
 	defer db.Close()
 	var err error
-	if m.xlog_location, err = query1(db, "SELECT pg_current_xlog_location()"); err != nil {
+	// https://www.postgresql.org/docs/current/functions-admin.html
+	// pg_current_xlog_location() -> pg_current_wal_lsn()
+	if m.xlog_location, err = query1(db, "SELECT pg_current_wal_lsn()"); err != nil {
 		fmt.Printf("Failed to query current xlog location: %s\n", err)
 		os.Exit(BecauseMasterQueryFailed)
 	}
@@ -114,12 +116,16 @@ func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
 	db := connect(host, port, user, pass, dbname)
 	defer db.Close()
 	var err error
-	if s.recv_location, err = query1(db, "SELECT pg_last_xlog_receive_location()"); err != nil {
+	// https://www.postgresql.org/docs/current/functions-admin.html
+	// pg_last_xlog_receive_location() -> pg_last_wal_receive_lsn()
+	// pg_last_xlog_replay_location() -> pg_last_wal_replay_lsn()
+	// pg_xlog_location_diff() ->  pg_wal_lsn_diff()
+	if s.recv_location, err = query1(db, "SELECT pg_last_wal_receive_lsn()"); err != nil {
 		fmt.Printf("Failed to query last received xlog location: %s\n", err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
 
-	if s.rply_location, err = query1(db, "SELECT pg_last_xlog_replay_location()"); err != nil {
+	if s.rply_location, err = query1(db, "SELECT pg_last_wal_replay_lsn()"); err != nil {
 		fmt.Printf("Failed to query last replayed xlog location: %s\n", err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
@@ -143,14 +149,21 @@ func main() {
 		Password  string   `goptions:"-w, --password, description='Password to connect with'"`
 		Debug     bool     `goptions:"-D, --debug, description='Enable debugging output (to standard error)'"`
 		AcceptLag int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
-		Version   bool     `goptions:"-v, --version, description='Program version'"`
+		Version   bool     `goptions:"-v, --version, description='Output version information, then exit'"`
+		Help      bool     `goptions:"-h, --help, description='Show this help, then exit'"`
 	}{
 		Port:      "6432",
 		AcceptLag: 8192,
 	}
 	goptions.ParseAndFail(&options)
+	if options.Help {
+		fmt.Printf("%s version `%s`\n", PgrtName, PgrtVersion)
+		goptions.PrintHelp()
+		os.Exit(0)
+	}
 	if options.Version {
 		fmt.Printf("%s version `%s`\n", PgrtName, PgrtVersion)
+		os.Exit(0)
 	}
 	if options.Database == "" {
 		options.Database = options.User
