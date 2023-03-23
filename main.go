@@ -13,20 +13,20 @@ import (
 
 const (
 	PgrtName    = "PG Replication Tester"
-	PgrtVersion = "v1.0.1"
+	PgrtVersion = "v1.1.0"
 	/* exit codes... */
-	BecauseConnectionFailed     = 2
-	BecauseMasterQueryFailed    = 3
-	BecauseSlaveQueryFailed     = 4
-	BecauseXlogConversionFailed = 5
-	BecauseReplicationLag       = 6
+	BecauseConnectionFailed    = 2
+	BecauseMasterQueryFailed   = 3
+	BecauseSlaveQueryFailed    = 4
+	BecauseWalConversionFailed = 5
+	BecauseReplicationLag      = 6
 )
 
 var debugging = false
 
-func debug(f string, args ...interface{}) {
+func debug(f string, a ...interface{}) {
 	if debugging {
-		fmt.Fprintf(os.Stderr, "DEBUG> %s\n", fmt.Sprintf(f, args))
+		fmt.Printf("DEBUG> "+f+"\n", a...)
 	}
 }
 
@@ -43,6 +43,7 @@ func query1(db *sql.DB, q string) (string, error) {
 		return "", err
 	}
 
+	debug("query result: `%s`", v)
 	return v, nil
 }
 
@@ -62,31 +63,33 @@ func connect(host, port, user, password, dbname string) *sql.DB {
 	return db
 }
 
-func xlog(s string) int64 {
-	l := strings.SplitN(s, "/", 2)
+// https://pgpedia.info/p/pg_lsn.html
+func parsePgLsn(s string) uint64 {
+	const supportInfo = "parser supports values between 0/0 and FFFFFFFF/FFFFFFFF"
+	l := strings.SplitN(s, "/", 3)
 	if len(l) != 2 {
-		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
-		os.Exit(BecauseXlogConversionFailed)
+		fmt.Fprintf(os.Stderr, "parsing pg_lsn=`%s` failed (not two parts?), %s\n", s, supportInfo)
+		os.Exit(BecauseWalConversionFailed)
 	}
 
-	a, err := strconv.ParseInt(l[0], 16, 64)
+	a, err := strconv.ParseUint(l[0], 16, 64)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
-		os.Exit(BecauseXlogConversionFailed)
+		fmt.Fprintf(os.Stderr, "parsing pg_lsn=`%s` failed (first part), %s\n", s, supportInfo)
+		os.Exit(BecauseWalConversionFailed)
 	}
 
-	b, err := strconv.ParseInt(l[1], 16, 64)
+	b, err := strconv.ParseUint(l[1], 16, 64)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "xlog(%s) failed - not a valid xlog location?\n", s)
-		os.Exit(BecauseXlogConversionFailed)
+		fmt.Fprintf(os.Stderr, "parsing pg_lsn=`%s` failed (second part), %s\n", s, supportInfo)
+		os.Exit(BecauseWalConversionFailed)
 	}
 
-	return a<<64 + b
+	return a<<32 + b
 }
 
 type Master struct {
 	name          string
-	xlog_location string
+	currentWalLsn string // lsn - Log Sequence Number
 }
 
 func QueryMaster(host, port, user, pass, dbname string) (m Master) {
@@ -96,19 +99,17 @@ func QueryMaster(host, port, user, pass, dbname string) (m Master) {
 	var err error
 	// https://www.postgresql.org/docs/current/functions-admin.html
 	// pg_current_xlog_location() -> pg_current_wal_lsn()
-	if m.xlog_location, err = query1(db, "SELECT pg_current_wal_lsn()"); err != nil {
-		fmt.Printf("Failed to query current xlog location: %s\n", err)
+	if m.currentWalLsn, err = query1(db, "SELECT pg_current_wal_lsn()"); err != nil {
+		fmt.Printf("Failed to query current wal location: %s\n", err)
 		os.Exit(BecauseMasterQueryFailed)
 	}
 	return
 }
 
 type Slave struct {
-	name          string
-	recv_location string
-	rply_location string
-	behind        int64
-	delay         int64
+	name              string
+	lastWalReceiveLsn string
+	lastWalReplayLsn  string
 }
 
 func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
@@ -120,23 +121,33 @@ func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
 	// pg_last_xlog_receive_location() -> pg_last_wal_receive_lsn()
 	// pg_last_xlog_replay_location() -> pg_last_wal_replay_lsn()
 	// pg_xlog_location_diff() ->  pg_wal_lsn_diff()
-	if s.recv_location, err = query1(db, "SELECT pg_last_wal_receive_lsn()"); err != nil {
-		fmt.Printf("Failed to query last received xlog location: %s\n", err)
+	if s.lastWalReceiveLsn, err = query1(db, "SELECT pg_last_wal_receive_lsn()"); err != nil {
+		fmt.Printf("Failed to query last received wal location: %s\n", err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
 
-	if s.rply_location, err = query1(db, "SELECT pg_last_wal_replay_lsn()"); err != nil {
-		fmt.Printf("Failed to query last replayed xlog location: %s\n", err)
+	if s.lastWalReplayLsn, err = query1(db, "SELECT pg_last_wal_replay_lsn()"); err != nil {
+		fmt.Printf("Failed to query last replayed wal location: %s\n", err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
 	return
 }
 
-func (s *Slave) Check(m Master) {
-	debug("checking master xlog_location: `%s`, slave recv_location: `%s`, slave rply_location: `%s`",
-		m.xlog_location, s.recv_location, s.rply_location)
-	s.behind = xlog(s.recv_location) - xlog(m.xlog_location)
-	s.delay = xlog(s.rply_location) - xlog(s.recv_location)
+func (s *Slave) CalculateLag(m Master) (behind uint64, delay uint64) {
+	debug("checking: master.currentWalLsn=`%s`, slave.lastWalReceiveLsn=`%s`, slave.lastWalReplayLsn=`%s`", m.currentWalLsn, s.lastWalReceiveLsn, s.lastWalReplayLsn)
+	masterCurrentWalLsn := parsePgLsn(m.currentWalLsn)
+	slaveLastWalReceive := parsePgLsn(s.lastWalReceiveLsn)
+	slaveLastWalReplay := parsePgLsn(s.lastWalReplayLsn)
+	behind = 0
+	if masterCurrentWalLsn > slaveLastWalReceive {
+		behind = masterCurrentWalLsn - slaveLastWalReceive
+	}
+	delay = 0
+	if slaveLastWalReceive > slaveLastWalReplay {
+		delay = slaveLastWalReceive - slaveLastWalReplay
+	}
+	debug("checking: master.currentWalLsn=%d, slave.lastWalReceive=%d, slave.lastWalReplay=%d, slave.behind=%d, slave.delay=%d", masterCurrentWalLsn, slaveLastWalReceive, slaveLastWalReplay, behind, delay)
+	return behind, delay
 }
 
 func main() {
@@ -148,7 +159,7 @@ func main() {
 		User      string   `goptions:"-u, --user, description='User to connect as'"`
 		Password  string   `goptions:"-w, --password, description='Password to connect with'"`
 		Debug     bool     `goptions:"-D, --debug, description='Enable debugging output (to standard error)'"`
-		AcceptLag int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
+		AcceptLag int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master wal position (bytes)'"`
 		Version   bool     `goptions:"-v, --version, description='Output version information, then exit'"`
 		Help      bool     `goptions:"-h, --help, description='Show this help, then exit'"`
 	}{
@@ -179,21 +190,19 @@ func main() {
 	master := QueryMaster(options.Master, options.Port,
 		options.User, options.Password, options.Database)
 
-	fmt.Printf("%s: %s\n", master.name, master.xlog_location)
+	fmt.Printf("%s: %s\n", master.name, master.currentWalLsn)
 	failed := false
 	for _, slave := range slaves {
-		slave.Check(master)
+		behind, delay := slave.CalculateLag(master)
 
 		emsg := ""
-		if slave.behind > options.AcceptLag {
+		if behind > uint64(options.AcceptLag) {
 			failed = true
 			emsg = "    !! too far behind write master"
 		}
 
-		fmt.Printf("%s: %s %-12s   to %s %-12s%s\n", slave.name,
-			slave.recv_location, fmt.Sprintf("(%d)", -1*slave.behind),
-			slave.rply_location, fmt.Sprintf("(%d)", -1*slave.delay),
-			emsg)
+		fmt.Printf("%s: %s (behind %d) to %s (delay %d) %s\n", slave.name,
+			slave.lastWalReceiveLsn, behind, slave.lastWalReplayLsn, delay, emsg)
 	}
 	if failed {
 		fmt.Print("FAILED\n")

@@ -67,7 +67,5 @@ Building
 --------
 
 ```bash
-GOOS=linux 
-GOARCH=amd64
-go build -o pgrt
+GOOS=linux GOARCH=amd64 go build -o pgrt
 ```
