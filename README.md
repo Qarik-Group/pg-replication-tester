@@ -55,8 +55,19 @@ Options
 -M, --master   Replication master host.  May only be specified once
 -S, --slave    Replication slave host(s).  May be specified more than once
 -p, --port     TCP port that Postgres listens on (default: 6432)
+-d, --database Database to use for testing
 -u, --user     User to connect as
 -w, --password Password to connect with
 -D, --debug    Enable debugging output (to standard error)
 -l, --lag      Maximum acceptable lag behind the master xlog position (bytes) (default: 8192)
+-v, --version  Program version
+```
+
+Building
+--------
+
+```bash
+GOOS=linux 
+GOARCH=amd64
+go build -o pgrt
 ```

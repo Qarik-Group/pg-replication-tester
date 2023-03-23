@@ -12,6 +12,8 @@ import (
 )
 
 const (
+	PgrtName    = "PG Replication Tester"
+	PgrtVersion = "v1.0.1"
 	/* exit codes... */
 	BecauseConnectionFailed     = 2
 	BecauseMasterQueryFailed    = 3
@@ -29,6 +31,7 @@ func debug(f string, args ...interface{}) {
 }
 
 func query1(db *sql.DB, q string) (string, error) {
+	debug("query: `%s`", q)
 	r, err := db.Query(q)
 	if err != nil {
 		return "", err
@@ -107,7 +110,7 @@ type Slave struct {
 }
 
 func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
-	s.name = host;
+	s.name = host
 	db := connect(host, port, user, pass, dbname)
 	defer db.Close()
 	var err error
@@ -124,6 +127,8 @@ func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
 }
 
 func (s *Slave) Check(m Master) {
+	debug("checking master xlog_location: `%s`, slave recv_location: `%s`, slave rply_location: `%s`",
+		m.xlog_location, s.recv_location, s.rply_location)
 	s.behind = xlog(s.recv_location) - xlog(m.xlog_location)
 	s.delay = xlog(s.rply_location) - xlog(s.recv_location)
 }
@@ -133,16 +138,20 @@ func main() {
 		Master    string   `goptions:"-M, --master, description='Replication master host.  May only be specified once'"`
 		Slaves    []string `goptions:"-S, --slave, description='Replication slave host(s).  May be specified more than once'"`
 		Port      string   `goptions:"-p, --port, description='TCP port that Postgres listens on'"`
+		Database  string   `goptions:"-d, --database, description='Database to use for testing'"`
 		User      string   `goptions:"-u, --user, description='User to connect as'"`
 		Password  string   `goptions:"-w, --password, description='Password to connect with'"`
-		Database  string   `goptions:"-d, --database, description='Database to use for testing'"`
 		Debug     bool     `goptions:"-D, --debug, description='Enable debugging output (to standard error)'"`
 		AcceptLag int64    `goptions:"-l, --lag, description='Maximum acceptable lag behind the master xlog position (bytes)'"`
+		Version   bool     `goptions:"-v, --version, description='Program version'"`
 	}{
 		Port:      "6432",
 		AcceptLag: 8192,
 	}
 	goptions.ParseAndFail(&options)
+	if options.Version {
+		fmt.Printf("%s version `%s`\n", PgrtName, PgrtVersion)
+	}
 	if options.Database == "" {
 		options.Database = options.User
 	}
