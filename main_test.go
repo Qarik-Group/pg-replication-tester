@@ -37,16 +37,16 @@ func TestMain_convertPgLsn(t *testing.T) {
 
 func TestMain_calculateLag(t *testing.T) {
 	m := Master{
-		name:          "testMaster",
-		currentWalLsn: "0/189B2E78", // 412_823_160
+		name:             "testMaster",
+		currentWalLsnInt: parsePgLsn("0/189B2E78"), // 412_823_160
 	}
 	s := Slave{
-		name:              "testSlave",
-		lastWalReceiveLsn: "0/90000A1", // 150_995_105
-		lastWalReplayLsn:  "0/90000A0", // 150_995_104
+		name:                 "testSlave",
+		lastWalReceiveLsnInt: parsePgLsn("0/90000A1"), // 150_995_105
+		lastWalReplayLsnInt:  parsePgLsn("0/90000A0"), // 150_995_104
 	}
-	behind, delay := s.CalculateLag(m)
+	receiveLag, replayLag := s.CalculateLag(m)
 
-	assert.Equal(t, uint64(261_828_055), behind)
-	assert.Equal(t, uint64(1), delay)
+	assert.Equal(t, uint64(261_828_055), receiveLag)
+	assert.Equal(t, uint64(1), replayLag)
 }
