@@ -8,7 +8,7 @@ and verify the health and well-being of each node.
 Example
 -------
 
-A healthy cluster, with some leeway on the replication lag (`-l)
+A healthy cluster, with some leeway on the replication lag (`-l`)
 
 ```
 $ pgrt -M 10.244.232.2 -S 10.244.232.3 -S 10.244.232.4 -l 65536
