@@ -24,7 +24,7 @@ func (log *Log) error(f string, a ...interface{}) {
 
 func (log *Log) debug(f string, a ...interface{}) {
 	if log.debugging {
-		fmt.Fprintf(os.Stderr, "DEBUG ["+time.Now().Format(time.RFC3339)+"]> "+f+"\n", a...)
+		fmt.Fprintf(os.Stderr, "["+time.Now().Format(time.RFC3339)+"] DEBUG> "+f+"\n", a...)
 	}
 }
 
