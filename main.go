@@ -12,7 +12,7 @@ import (
 
 const (
 	PgrtName    = "PG Replication Tester"
-	PgrtVersion = "v1.1.4"
+	PgrtVersion = "v1.1.5"
 	/* exit codes... */
 	BecauseConnectionFailed    = 2
 	BecauseMasterQueryFailed   = 3
@@ -78,11 +78,11 @@ func parsePgLsn(s string) uint64 {
 func queryIsInRecovery(db *sql.DB) bool {
 	var isInRecoveryStr string
 	var err error
-	if isInRecoveryStr, err = queryStr(db, "SELECT pg_is_in_recovery()"); err != nil {
+	if isInRecoveryStr, err = queryStr(db, "SELECT pg_is_in_recovery()::TEXT"); err != nil {
 		log.error("Failed to query recovery mode: %s", err)
 		os.Exit(BecauseMasterQueryFailed)
 	}
-	return isInRecoveryStr == "t" || isInRecoveryStr == "true"
+	return isInRecoveryStr == "true"
 }
 
 type Master struct {
@@ -209,12 +209,12 @@ func main() {
 	log.info("Master %s current wal LSN %d (%s)", master.name, master.currentWalLsnInt, master.currentWalLsn)
 	laggingSlavesCount := 0
 	notInRecoverySlavesCount := 0
-	slavesNotInRecovery := ""
+	notInRecoverySlavesList := ""
 	for _, slave := range slaves {
 		receiveLag, replayLag := slave.CalculateLag(master)
 		if !slave.isInRecovery {
 			notInRecoverySlavesCount++
-			slavesNotInRecovery = slavesNotInRecovery + slave.name + ","
+			notInRecoverySlavesList = notInRecoverySlavesList + slave.name + "(in_rec=" + strconv.FormatBool(slave.isInRecovery) + "),"
 		}
 
 		emsg := "keeps up with master"
@@ -223,11 +223,11 @@ func main() {
 			emsg = "is too far behind write master"
 		}
 
-		log.info("Slave %s(%t) receives wals with lag %d, replays received wals with lag %d - max accepted lag %d - %s",
+		log.info("Slave %s(in_rec=%t) receives wals with lag %d, replays received wals with lag %d - max accepted lag %d - %s",
 			slave.name, slave.isInRecovery, receiveLag, replayLag, options.AcceptLag, emsg)
 	}
 	if notInRecoverySlavesCount > 0 {
-		log.error("FAILED (%d slaves aren't in recovery: %s)", notInRecoverySlavesCount, slavesNotInRecovery)
+		log.error("FAILED (%d slaves aren't in recovery: %s)", notInRecoverySlavesCount, notInRecoverySlavesList)
 		os.Exit(BecauseWrongInRecovery)
 	}
 	if laggingSlavesCount > 0 {
