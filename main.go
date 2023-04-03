@@ -12,7 +12,7 @@ import (
 
 const (
 	PgrtName    = "PG Replication Tester"
-	PgrtVersion = "v1.1.0"
+	PgrtVersion = "v1.1.1"
 	/* exit codes... */
 	BecauseConnectionFailed    = 2
 	BecauseMasterQueryFailed   = 3
@@ -22,21 +22,19 @@ const (
 	BecauseWrongInRecovery     = 7
 )
 
-func query1(db *sql.DB, q string) (string, error) {
+func queryStr(db *sql.DB, q string) (string, error) {
 	log.debug("query: `%s`", q)
-	r, err := db.Query(q)
-	if err != nil {
+	row := db.QueryRow(q)
+	var v any
+	if err := row.Scan(&v); err != nil {
 		return "", err
 	}
-
-	var v string
-	r.Next()
-	if err = r.Scan(&v); err != nil {
-		return "", err
+	log.debug("query result: `%v`", v)
+	vStr := ""
+	if v != nil {
+		vStr = fmt.Sprintf("%v", v)
 	}
-
-	log.debug("query result: `%s`", v)
-	return v, nil
+	return vStr, nil
 }
 
 func connect(host, port, user, password, dbname string) *sql.DB {
@@ -57,6 +55,9 @@ func connect(host, port, user, password, dbname string) *sql.DB {
 // https://pgpedia.info/p/pg_lsn.html
 func parsePgLsn(s string) uint64 {
 	const supportInfo = "parser supports values between 0/0 and FFFFFFFF/FFFFFFFF"
+	if s == "" {
+		s = "0/0"
+	}
 	l := strings.SplitN(s, "/", 3)
 	if len(l) != 2 {
 		log.error("parsing pg_lsn=`%s` failed (not two parts?), %s", s, supportInfo)
@@ -81,7 +82,7 @@ func parsePgLsn(s string) uint64 {
 func queryIsInRecovery(db *sql.DB) bool {
 	var isInRecoveryStr string
 	var err error
-	if isInRecoveryStr, err = query1(db, "SELECT pg_is_in_recovery()"); err != nil {
+	if isInRecoveryStr, err = queryStr(db, "SELECT pg_is_in_recovery()"); err != nil {
 		log.error("Failed to query recovery mode: %s", err)
 		os.Exit(BecauseMasterQueryFailed)
 	}
@@ -103,8 +104,8 @@ func QueryMaster(host, port, user, pass, dbname string) (m Master) {
 	var err error
 	// https://www.postgresql.org/docs/current/functions-admin.html
 	// pg_current_xlog_location() -> pg_current_wal_lsn()
-	if m.currentWalLsn, err = query1(db, "SELECT pg_current_wal_lsn()"); err != nil {
-		log.error("Failed to query current wal location: %s", err)
+	if m.currentWalLsn, err = queryStr(db, "SELECT pg_current_wal_lsn()"); err != nil {
+		log.error("Failed to query current wal location, host: %s, port: %s, error: %v", host, port, err)
 		// TODO: err when is a slave: Failed to query current wal location: pq: recovery is in progress
 		os.Exit(BecauseMasterQueryFailed)
 	}
@@ -131,14 +132,14 @@ func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
 	// pg_last_xlog_receive_location() -> pg_last_wal_receive_lsn()
 	// pg_last_xlog_replay_location() -> pg_last_wal_replay_lsn()
 	// pg_xlog_location_diff() ->  pg_wal_lsn_diff()
-	if s.lastWalReceiveLsn, err = query1(db, "SELECT pg_last_wal_receive_lsn()"); err != nil {
-		log.error("Failed to query last received wal location: %s", err)
+	if s.lastWalReceiveLsn, err = queryStr(db, "SELECT pg_last_wal_receive_lsn()"); err != nil {
+		log.error("Failed to query last received wal location, host: %s, port: %s, error: %v", host, port, err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
 	s.lastWalReceiveLsnInt = parsePgLsn(s.lastWalReceiveLsn)
 
-	if s.lastWalReplayLsn, err = query1(db, "SELECT pg_last_wal_replay_lsn()"); err != nil {
-		log.error("Failed to query last replayed wal location: %s", err)
+	if s.lastWalReplayLsn, err = queryStr(db, "SELECT pg_last_wal_replay_lsn()"); err != nil {
+		log.error("Failed to query last replayed wal location, host: %s, port: %s, error: %v", host, port, err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
 	s.lastWalReplayLsnInt = parsePgLsn(s.lastWalReplayLsn)
