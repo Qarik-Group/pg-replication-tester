@@ -12,7 +12,7 @@ import (
 
 const (
 	PgrtName    = "PG Replication Tester"
-	PgrtVersion = "v1.1.1"
+	PgrtVersion = "v1.1.2"
 	/* exit codes... */
 	BecauseConnectionFailed    = 2
 	BecauseMasterQueryFailed   = 3
