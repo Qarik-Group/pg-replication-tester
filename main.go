@@ -12,7 +12,7 @@ import (
 
 const (
 	PgrtName    = "PG Replication Tester"
-	PgrtVersion = "v1.1.3"
+	PgrtVersion = "v1.1.4"
 	/* exit codes... */
 	BecauseConnectionFailed    = 2
 	BecauseMasterQueryFailed   = 3
@@ -209,10 +209,12 @@ func main() {
 	log.info("Master %s current wal LSN %d (%s)", master.name, master.currentWalLsnInt, master.currentWalLsn)
 	laggingSlavesCount := 0
 	notInRecoverySlavesCount := 0
+	slavesNotInRecovery := ""
 	for _, slave := range slaves {
 		receiveLag, replayLag := slave.CalculateLag(master)
 		if !slave.isInRecovery {
 			notInRecoverySlavesCount++
+			slavesNotInRecovery = slavesNotInRecovery + slave.name + ","
 		}
 
 		emsg := "keeps up with master"
@@ -225,7 +227,7 @@ func main() {
 			slave.name, slave.isInRecovery, receiveLag, replayLag, options.AcceptLag, emsg)
 	}
 	if notInRecoverySlavesCount > 0 {
-		log.error("FAILED (some slaves aren't in recovery: %d)", master.isInRecovery, notInRecoverySlavesCount)
+		log.error("FAILED (%d slaves aren't in recovery: %s)", notInRecoverySlavesCount, slavesNotInRecovery)
 		os.Exit(BecauseWrongInRecovery)
 	}
 	if laggingSlavesCount > 0 {
