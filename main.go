@@ -25,16 +25,12 @@ const (
 func queryStr(db *sql.DB, q string) (string, error) {
 	log.debug("query: `%s`", q)
 	row := db.QueryRow(q)
-	var v any
+	var v string
 	if err := row.Scan(&v); err != nil {
 		return "", err
 	}
 	log.debug("query result: `%v`", v)
-	vStr := ""
-	if v != nil {
-		vStr = fmt.Sprintf("%v", v)
-	}
-	return vStr, nil
+	return v, nil
 }
 
 func connect(host, port, user, password, dbname string) *sql.DB {
@@ -104,7 +100,7 @@ func QueryMaster(host, port, user, pass, dbname string) (m Master) {
 	var err error
 	// https://www.postgresql.org/docs/current/functions-admin.html
 	// pg_current_xlog_location() -> pg_current_wal_lsn()
-	if m.currentWalLsn, err = queryStr(db, "SELECT pg_current_wal_lsn()"); err != nil {
+	if m.currentWalLsn, err = queryStr(db, "SELECT COALESCE(pg_current_wal_lsn(),'0/0)"); err != nil {
 		log.error("Failed to query current wal location, host: %s, port: %s, error: %v", host, port, err)
 		// TODO: err when is a slave: Failed to query current wal location: pq: recovery is in progress
 		os.Exit(BecauseMasterQueryFailed)
@@ -132,13 +128,13 @@ func QuerySlave(host, port, user, pass, dbname string) (s Slave) {
 	// pg_last_xlog_receive_location() -> pg_last_wal_receive_lsn()
 	// pg_last_xlog_replay_location() -> pg_last_wal_replay_lsn()
 	// pg_xlog_location_diff() ->  pg_wal_lsn_diff()
-	if s.lastWalReceiveLsn, err = queryStr(db, "SELECT pg_last_wal_receive_lsn()"); err != nil {
+	if s.lastWalReceiveLsn, err = queryStr(db, "SELECT COALESCE(pg_last_wal_receive_lsn(),'0/0)"); err != nil {
 		log.error("Failed to query last received wal location, host: %s, port: %s, error: %v", host, port, err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
 	s.lastWalReceiveLsnInt = parsePgLsn(s.lastWalReceiveLsn)
 
-	if s.lastWalReplayLsn, err = queryStr(db, "SELECT pg_last_wal_replay_lsn()"); err != nil {
+	if s.lastWalReplayLsn, err = queryStr(db, "SELECT COALESCE(pg_last_wal_replay_lsn(),'0/0)'"); err != nil {
 		log.error("Failed to query last replayed wal location, host: %s, port: %s, error: %v", host, port, err)
 		os.Exit(BecauseSlaveQueryFailed)
 	}
